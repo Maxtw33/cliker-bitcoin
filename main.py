@@ -2,13 +2,18 @@ import sys
 import os
 import json
 import random
+import hashlib
+import time
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
                              QVBoxLayout, QWidget, QHBoxLayout, QScrollArea,
-                             QGridLayout, QDialog, QMessageBox, QInputDialog)
+                             QGridLayout, QDialog, QMessageBox, QInputDialog,
+                             QLineEdit, QStackedWidget, QTableWidget, QTableWidgetItem)
 from PyQt5.QtGui import QPixmap, QIcon
 from PyQt5.QtCore import Qt, QTimer
 
-SAVE_FILE = "save_data.json"
+SAVE_DIR = "saves"
+USER_DATA_FILE = os.path.join(SAVE_DIR, "users.json")
+os.makedirs(SAVE_DIR, exist_ok=True)
 
 
 class Cryptocurrency:
@@ -26,6 +31,149 @@ CRYPTOCURRENCIES = [
     Cryptocurrency("BNB", 100000, "bnb.png", "Monero"),
     Cryptocurrency("Monero", 10000000, "monero.png")
 ]
+
+
+class LoginWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Bitcoin Miner Tycoon PRO - Вхід")
+        self.setFixedSize(400, 300)
+        self.setWindowIcon(QIcon(f"images/{CRYPTOCURRENCIES[0].image}"))
+
+        self.init_ui()
+        self.load_users()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        self.stack = QStackedWidget()
+
+        # Login Page
+        login_page = QWidget()
+        login_layout = QVBoxLayout()
+
+        self.login_username = QLineEdit()
+        self.login_username.setPlaceholderText("Логін")
+        login_layout.addWidget(self.login_username)
+
+        self.login_password = QLineEdit()
+        self.login_password.setPlaceholderText("Пароль")
+        self.login_password.setEchoMode(QLineEdit.Password)
+        login_layout.addWidget(self.login_password)
+
+        login_btn = QPushButton("Увійти")
+        login_btn.clicked.connect(self.handle_login)
+        login_layout.addWidget(login_btn)
+
+        register_btn = QPushButton("Реєстрація")
+        register_btn.clicked.connect(lambda: self.stack.setCurrentIndex(1))
+        login_layout.addWidget(register_btn)
+
+        login_page.setLayout(login_layout)
+        self.stack.addWidget(login_page)
+
+        # Register Page
+        register_page = QWidget()
+        register_layout = QVBoxLayout()
+
+        self.register_username = QLineEdit()
+        self.register_username.setPlaceholderText("Логін")
+        register_layout.addWidget(self.register_username)
+
+        self.register_password = QLineEdit()
+        self.register_password.setPlaceholderText("Пароль")
+        self.register_password.setEchoMode(QLineEdit.Password)
+        register_layout.addWidget(self.register_password)
+
+        self.register_confirm = QLineEdit()
+        self.register_confirm.setPlaceholderText("Підтвердіть пароль")
+        self.register_confirm.setEchoMode(QLineEdit.Password)
+        register_layout.addWidget(self.register_confirm)
+
+        register_submit_btn = QPushButton("Зареєструватися")
+        register_submit_btn.clicked.connect(self.handle_register)
+        register_layout.addWidget(register_submit_btn)
+
+        back_btn = QPushButton("Назад")
+        back_btn.clicked.connect(lambda: self.stack.setCurrentIndex(0))
+        register_layout.addWidget(back_btn)
+
+        register_page.setLayout(register_layout)
+        self.stack.addWidget(register_page)
+
+        layout.addWidget(self.stack)
+        self.setLayout(layout)
+
+    def load_users(self):
+        try:
+            if os.path.exists(USER_DATA_FILE):
+                with open(USER_DATA_FILE, "r") as f:
+                    self.users = json.load(f)
+            else:
+                self.users = {}
+        except:
+            self.users = {}
+
+    def save_users(self):
+        try:
+            with open(USER_DATA_FILE, "w") as f:
+                json.dump(self.users, f)
+            return True
+        except:
+            return False
+
+    def hash_password(self, password):
+        return hashlib.sha256(password.encode()).hexdigest()
+
+    def handle_login(self):
+        username = self.login_username.text().strip()
+        password = self.login_password.text().strip()
+
+        if not username or not password:
+            QMessageBox.warning(self, "Помилка", "Будь ласка, введіть логін та пароль")
+            return
+
+        if username in self.users:
+            hashed_password = self.hash_password(password)
+            if self.users[username]["password"] == hashed_password:
+                self.accept()  # Close the dialog with success
+                self.logged_in_user = username
+                return
+
+        QMessageBox.warning(self, "Помилка", "Невірний логін або пароль")
+
+    def handle_register(self):
+        username = self.register_username.text().strip()
+        password = self.register_password.text().strip()
+        confirm = self.register_confirm.text().strip()
+
+        if not username or not password or not confirm:
+            QMessageBox.warning(self, "Помилка", "Будь ласка, заповніть всі поля")
+            return
+
+        if password != confirm:
+            QMessageBox.warning(self, "Помилка", "Паролі не співпадають")
+            return
+
+        if len(password) < 4:
+            QMessageBox.warning(self, "Помилка", "Пароль повинен містити принаймні 4 символи")
+            return
+
+        if username in self.users:
+            QMessageBox.warning(self, "Помилка", "Користувач з таким логіном вже існує")
+            return
+
+        hashed_password = self.hash_password(password)
+        self.users[username] = {
+            "password": hashed_password,
+            "save_file": os.path.join(SAVE_DIR, f"{username}.json")
+        }
+
+        if self.save_users():
+            QMessageBox.information(self, "Успіх", "Реєстрація успішна! Тепер ви можете увійти.")
+            self.stack.setCurrentIndex(0)
+        else:
+            QMessageBox.warning(self, "Помилка", "Не вдалося зберегти дані користувача")
 
 
 class MinerShop(QDialog):
@@ -138,7 +286,7 @@ class UpgradeCryptoDialog(QDialog):
         layout = QVBoxLayout()
 
         for i, crypto in enumerate(CRYPTOCURRENCIES[1:], start=1):
-            if not crypto.unlocked and not CRYPTOCURRENCIES[i - 1].unlocked:
+            if not CRYPTOCURRENCIES[i - 1].unlocked:
                 continue
 
             crypto_widget = self.create_crypto_widget(crypto, i)
@@ -218,10 +366,107 @@ class UpgradeCryptoDialog(QDialog):
         self.close()
 
 
+class LeaderboardWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Таблиця лідерів")
+        self.setFixedSize(600, 400)
+        self.parent = parent
+
+        self.init_ui()
+        self.load_leaderboard()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Гравець", "Загальний дохід", "Найвища крипта"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        layout.addWidget(self.table)
+
+        buttons_layout = QHBoxLayout()
+        btn_close = QPushButton("Закрити")
+        btn_close.clicked.connect(self.close)
+        buttons_layout.addWidget(btn_close)
+
+        layout.addLayout(buttons_layout)
+        self.setLayout(layout)
+
+    def load_leaderboard(self):
+        try:
+            if not os.path.exists(USER_DATA_FILE):
+                return
+
+            with open(USER_DATA_FILE, "r") as f:
+                users = json.load(f)
+
+            leaderboard_data = []
+
+            for username, user_data in users.items():
+                save_file = user_data.get("save_file")
+                if not save_file or not os.path.exists(save_file):
+                    continue
+
+                with open(save_file, "r") as f:
+                    game_data = json.load(f)
+
+                # Конвертуємо всі доходи в Bitcoin для порівняння
+                total_income = 0
+                current_value = game_data.get("bitcoins", 0)
+                current_crypto = game_data.get("current_crypto", "Bitcoin")
+
+                # Знаходимо індекс поточної криптовалюти
+                crypto_index = 0
+                for i, crypto in enumerate(CRYPTOCURRENCIES):
+                    if crypto.name == current_crypto:
+                        crypto_index = i
+                        break
+
+                # Конвертація через всі попередні криптовалюти
+                for i in range(crypto_index, 0, -1):
+                    conversion_rate = CRYPTOCURRENCIES[i].price
+                    current_value *= conversion_rate
+
+                total_income = current_value
+
+                # Додаємо доходи від майнерів (якщо вони є)
+                if "owned_miners" in game_data:
+                    for miner_name, miner_data in game_data["owned_miners"].items():
+                        miner_power = miner_data["data"]["power"] * miner_data["count"]
+                        # Конвертуємо потужність майнерів в Bitcoin
+                        for i in range(crypto_index, 0, -1):
+                            miner_power *= CRYPTOCURRENCIES[i].price
+                        total_income += miner_power * 1000  # Припускаємо, що майнери працювали 1000 секунд
+
+                leaderboard_data.append({
+                    "username": username,
+                    "total_income": total_income,
+                    "highest_crypto": current_crypto
+                })
+
+            # Сортуємо за загальним доходом
+            leaderboard_data.sort(key=lambda x: x["total_income"], reverse=True)
+
+            self.table.setRowCount(len(leaderboard_data))
+            for row, data in enumerate(leaderboard_data):
+                self.table.setItem(row, 0, QTableWidgetItem(data["username"]))
+                self.table.setItem(row, 1, QTableWidgetItem(f"{data['total_income']:,.8f} BTC"))
+                self.table.setItem(row, 2, QTableWidgetItem(data["highest_crypto"]))
+
+            self.table.resizeColumnsToContents()
+
+        except Exception as e:
+            print("Помилка завантаження таблиці лідерів:", e)
+
+
 class MegaClicker(QMainWindow):
-    def __init__(self):
+    def __init__(self, username):
         super().__init__()
-        self.setWindowTitle("Bitcoin Miner Tycoon PRO")
+        self.username = username
+        self.setWindowTitle(f"Bitcoin Miner Tycoon PRO - {username}")
         self.setGeometry(100, 100, 800, 800)
 
         self.current_crypto = CRYPTOCURRENCIES[0]
@@ -275,9 +520,19 @@ class MegaClicker(QMainWindow):
         buttons_layout.addWidget(self.invest_button)
 
         self.upgrade_crypto_button = QPushButton("Прокачка крипти")
-        self.upgrade_crypto_button.setStyleSheet(self.get_button_style("#9b59b6"))  # Фіолетовий колір
+        self.upgrade_crypto_button.setStyleSheet(self.get_button_style("#9b59b6"))
         self.upgrade_crypto_button.clicked.connect(self.open_upgrade_crypto)
         buttons_layout.addWidget(self.upgrade_crypto_button)
+
+        self.leaderboard_button = QPushButton("Таблиця лідерів")
+        self.leaderboard_button.setStyleSheet(self.get_button_style("#3498db"))
+        self.leaderboard_button.clicked.connect(self.show_leaderboard)
+        buttons_layout.addWidget(self.leaderboard_button)
+
+        self.reset_button = QPushButton("Знищити прогрес")
+        self.reset_button.setStyleSheet(self.get_button_style("#e74c3c"))
+        self.reset_button.clicked.connect(self.reset_progress)
+        buttons_layout.addWidget(self.reset_button)
 
         main_layout.addLayout(buttons_layout)
 
@@ -311,25 +566,56 @@ class MegaClicker(QMainWindow):
     def can_unlock(self, crypto):
         index = CRYPTOCURRENCIES.index(crypto)
         prev_crypto = CRYPTOCURRENCIES[index - 1]
-
-        if prev_crypto.name == "Bitcoin":
-            return self.bitcoins >= crypto.price
-        else:
-            return False  # Для інших валют потрібно спочатку розблокувати попередню
+        return prev_crypto.unlocked and self.bitcoins >= crypto.price
 
     def upgrade_crypto(self, crypto):
-        if self.current_crypto.name == "Bitcoin" and self.bitcoins >= crypto.price:
-            self.bitcoins -= crypto.price
+        if self.can_unlock(crypto):
+            # Скидаємо всі значення при переході на нову криптовалюту
+            self.bitcoins = 0.0
+            self.click_power = 0.0001
+            self.upgrade_cost = 0.0005
+            self.owned_miners = {}
+
             crypto.unlocked = True
             self.current_crypto = crypto
             self.update_ui()
-            QMessageBox.information(self, "Вітаємо!", f"Ви прокачали свою крипту до {crypto.name}!")
+            QMessageBox.information(self, "Вітаємо!",
+                                    f"Ви прокачали свою крипту до {crypto.name}! Всі значення скинуті.")
         else:
-            QMessageBox.warning(self, "Помилка", "У вас недостатньо коштів для прокачки!")
+            QMessageBox.warning(self, "Помилка",
+                                "У вас недостатньо коштів для прокачки або не розблоковано попередню криптовалюту!")
 
     def open_upgrade_crypto(self):
         dialog = UpgradeCryptoDialog(self)
         dialog.exec_()
+
+    def show_leaderboard(self):
+        leaderboard = LeaderboardWindow(self)
+        leaderboard.exec_()
+
+    def reset_progress(self):
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження",
+            "Ви впевнені, що хочете повністю скинути прогрес? Цю дію неможливо скасувати!",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            # Скидаємо всі значення
+            self.current_crypto = CRYPTOCURRENCIES[0]
+            self.bitcoins = 0.0
+            self.click_power = 0.0001
+            self.upgrade_cost = 0.0005
+            self.owned_miners = {}
+
+            # Скидаємо розблокування криптовалют (крім Bitcoin)
+            for crypto in CRYPTOCURRENCIES[1:]:
+                crypto.unlocked = False
+
+            self.update_ui()
+            QMessageBox.information(self, "Прогрес скинуто", "Весь ваш прогрес було скинуто до початкових значень.")
 
     def get_button_style(self, color):
         return f"""
@@ -359,8 +645,6 @@ class MegaClicker(QMainWindow):
             return color
 
     def update_ui(self):
-        self.setWindowIcon(QIcon(f"images/{self.current_crypto.image}"))
-        self.load_crypto_image()
         self.balance_label.setText(f"{self.current_crypto.name}: {self.bitcoins:.8f}")
         self.mine_button.setText(f"Майнити ({self.click_power:.4f} {self.current_crypto.name})")
         self.upgrade_button.setText(f"Покращити майнер\nЦіна: {self.upgrade_cost:.4f} {self.current_crypto.name}")
@@ -454,23 +738,36 @@ class MegaClicker(QMainWindow):
 
     def save_game(self):
         try:
+            # Load users to find our save file path
+            with open(USER_DATA_FILE, "r") as f:
+                users = json.load(f)
+
+            save_file = users[self.username]["save_file"]
+
             data = {
                 "current_crypto": self.current_crypto.name,
                 "bitcoins": self.bitcoins,
                 "click_power": self.click_power,
                 "owned_miners": {k: {"count": v["count"], "data": v["data"]} for k, v in self.owned_miners.items()},
                 "upgrade_cost": self.upgrade_cost,
-                "unlocked_cryptos": [crypto.name for crypto in CRYPTOCURRENCIES if crypto.unlocked]
+                "unlocked_cryptos": [crypto.name for crypto in CRYPTOCURRENCIES if crypto.unlocked],
+                "timestamp": int(time.time())  # Додаємо час останнього збереження
             }
-            with open(SAVE_FILE, "w") as f:
+            with open(save_file, "w") as f:
                 json.dump(data, f)
         except Exception as e:
             print("Не вдалося зберегти гру:", e)
 
     def load_game(self):
         try:
-            if os.path.exists(SAVE_FILE):
-                with open(SAVE_FILE, "r") as f:
+            # Load users to find our save file path
+            with open(USER_DATA_FILE, "r") as f:
+                users = json.load(f)
+
+            save_file = users[self.username]["save_file"]
+
+            if os.path.exists(save_file):
+                with open(save_file, "r") as f:
                     data = json.load(f)
 
                 self.bitcoins = data.get("bitcoins", 0.0)
@@ -502,9 +799,16 @@ class MegaClicker(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    window = MegaClicker()
-    window.show()
-    sys.exit(app.exec_())
+
+    # Show login window first
+    login = LoginWindow()
+    if login.exec_() == QDialog.Accepted:
+        # If login successful, show the main game window
+        window = MegaClicker(login.logged_in_user)
+        window.show()
+        sys.exit(app.exec_())
+    else:
+        sys.exit(0)
 
 
 if __name__ == "__main__":
